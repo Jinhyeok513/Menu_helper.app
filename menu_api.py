@@ -1,24 +1,56 @@
-from pathlib import Path
-
 from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
 
+from app_config import settings
 from data_load import load_menu_data
-from find_menu import find_menu_by_id, get_menu_items
+from find_menu import find_menu_by_id
+from html_menu_parser import UnsupportedMenuPageError
+from menu_ui import create_menu_ui_data
+from menu_url_fetcher import (
+    MenuPageFetchError,
+    MenuURLValidationError,
+    import_menu_from_url,
+)
 
 
 app = FastAPI(title="menu-helper API")
 
 # 현재 학습 단계에서는 확보된 정적 JSON을 서버 시작 시 한 번 읽는다.
-MENU_JSON_PATH = (
-    Path.home() / "Desktop" / "Menu_helper" / "Noelles_Cafe_Menu.json"
-)
-menu_data = load_menu_data(MENU_JSON_PATH)
+menu_data = load_menu_data(settings.menu_json_path)
+
+
+class MenuURLRequest(BaseModel):
+    url: str = Field(min_length=8, max_length=2048)
+
+
+@app.get("/health")
+def read_health() -> dict:
+    """앱이 백엔드 연결 여부를 가볍게 확인할 때 사용한다."""
+    return {"status": "ok"}
 
 
 @app.get("/menus")
-def read_menus() -> list[dict]:
-    """전체 메뉴 목록을 JSON 응답으로 반환한다."""
-    return get_menu_items(menu_data)
+def read_menus() -> dict:
+    """정적 JSON을 음식·음료 탭용 목록 구조로 반환한다."""
+    return create_menu_ui_data(menu_data)
+
+
+@app.post("/menu-sources/url")
+def create_menu_from_url(request_data: MenuURLRequest) -> dict:
+    """검증된 URL의 HTML 메뉴를 읽어 같은 목록 구조로 반환한다."""
+    try:
+        imported_menu_data = import_menu_from_url(request_data.url)
+    except MenuURLValidationError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except UnsupportedMenuPageError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except MenuPageFetchError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+    return {
+        "status": "ready",
+        "menu": create_menu_ui_data(imported_menu_data),
+    }
 
 
 @app.get("/menus/{item_id}")
@@ -39,7 +71,7 @@ def read_menu(item_id: str) -> dict:
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    uvicorn.run(app, host=settings.api_host, port=settings.api_port)
 
 
 # 학습 확인(실행되지 않는 주석):
