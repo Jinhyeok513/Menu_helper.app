@@ -17,6 +17,14 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
+*.provisionprofile
+*.cer
+*.der
+*.keystore
+*.xcarchive
+*.ipa
+*.dSYM
+xcuserdata/
 
 # Metro
 .metro-health-check*
@@ -30,7 +38,10 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files (EXPO_PUBLIC_ values are bundled into the app, so never put secrets here)
+.env
+.env.*
+!.env.example
 .env*.local
 
 # typescript

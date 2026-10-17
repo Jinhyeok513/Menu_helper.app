@@ -11,23 +11,179 @@ TAB_LABELS = {
 }
 
 
-def create_menu_card(menu_item: dict) -> dict:
+def _normalise_legacy_options(menu_item: dict) -> list[dict]:
+    """초기 JSON 옵션을 URL 메뉴와 같은 선택 그룹 구조로 바꾼다."""
+    item_id = str(menu_item.get("item_id") or "menu")
+    raw_options = menu_item.get("options") or []
+    if not isinstance(raw_options, list):
+        return []
+
+    normalised = []
+    for group_index, raw_group in enumerate(raw_options, start=1):
+        if not isinstance(raw_group, dict):
+            continue
+        if isinstance(raw_group.get("choices"), list) and raw_group.get("group_id"):
+            normalised.append(raw_group)
+            continue
+
+        selection_count = raw_group.get("selection_count")
+        selection_count = selection_count if isinstance(selection_count, int) else None
+        additional_price = raw_group.get("additional_price_aud")
+        price_confirmed = isinstance(additional_price, int | float)
+        choices = []
+        for choice_index, raw_choice in enumerate(raw_group.get("choices") or [], start=1):
+            if not isinstance(raw_choice, str):
+                continue
+            choices.append(
+                {
+                    "choice_id": f"{item_id}_option_{group_index}_{choice_index}",
+                    "name_original": raw_choice,
+                    "display_order": choice_index,
+                    "selected_by_default": False,
+                    "sold_out": False,
+                    "hidden": False,
+                    "price_delta_aud": additional_price if price_confirmed else None,
+                    "price_kind": "additional",
+                    "price_status": "confirmed" if price_confirmed else "unknown",
+                    "currency": menu_item.get("currency"),
+                }
+            )
+        normalised.append(
+            {
+                "group_id": f"{item_id}_option_{group_index}",
+                "group_type": "modifier",
+                "source_type": "legacy_sample",
+                "name_original": raw_group.get("group"),
+                "display_order": group_index,
+                "required": bool(selection_count and selection_count > 0),
+                "min_selected": selection_count or 0,
+                "max_selected": selection_count,
+                "raw_max_selected": selection_count,
+                "selection_limit_status": (
+                    "specified" if selection_count is not None else "unknown"
+                ),
+                "selection_type": (
+                    "single"
+                    if selection_count == 1
+                    else "multiple"
+                    if isinstance(selection_count, int) and selection_count > 1
+                    else "unknown"
+                ),
+                "allow_quantities": False,
+                "max_quantity": None,
+                "choices": choices,
+            }
+        )
+    return normalised
+
+
+def create_menu_detail(menu_item: dict) -> dict:
+    """저장 JSON과 URL 상품을 모바일 상세 화면의 공통 구조로 맞춘다."""
+    options = _normalise_legacy_options(menu_item)
+    variants = menu_item.get("variants")
+    variants = variants if isinstance(variants, list) else []
+    images = menu_item.get("images")
+    images = images if isinstance(images, list) else []
+    image_url = menu_item.get("image_url")
+    if not images and isinstance(image_url, str) and image_url:
+        images = [
+            {
+                "image_id": None,
+                "source_product_id": menu_item.get("source_product_id"),
+                "display_order": 1,
+                "role": "primary",
+                "url_original": image_url,
+                "thumbnail_url": image_url,
+                "large_url": image_url,
+                "width": None,
+                "height": None,
+                "format": None,
+                "source_id": menu_item.get("source_id") or "stored_menu_json",
+                "retrieved_at": menu_item.get("retrieved_at"),
+            }
+        ]
+
+    detail = dict(menu_item)
+    detail.update(
+        {
+            "product_id": menu_item.get("product_id") or menu_item.get("item_id"),
+            "source_product_id": menu_item.get("source_product_id"),
+            "price_max_aud": menu_item.get("price_max_aud"),
+            "options": options,
+            "option_status": menu_item.get("option_status") or (
+                "available" if options else "not_checked"
+            ),
+            "variants": variants,
+            "variant_status": menu_item.get("variant_status") or "not_checked",
+            "variant_selection": menu_item.get("variant_selection") or {
+                "selection_type": "unknown",
+                "required": None,
+                "min_selected": None,
+                "max_selected": None,
+                "constraint_status": "not_provided",
+            },
+            "images": images,
+            "image_status": menu_item.get("image_status") or (
+                "available" if images else "not_checked"
+            ),
+        }
+    )
+    return detail
+
+
+def create_menu_card(menu_item: dict, restaurant_id: str | None = None) -> dict:
     """메뉴 원본 한 건에서 목록 카드에 필요한 필드만 골라 반환한다."""
+    options = menu_item.get("options")
+    options = options if isinstance(options, list) else []
+    option_status = menu_item.get("option_status")
+    if option_status is None:
+        # 기존 JSON의 빈 options는 조사 완료를 뜻하지 않으므로 '없음'으로 바꾸지 않는다.
+        option_status = "available" if options else "not_checked"
+    option_choice_count = sum(
+        len(group.get("choices") or [])
+        for group in options
+        if isinstance(group, dict)
+    )
+    images = menu_item.get("images")
+    images = images if isinstance(images, list) else []
     return {
         "item_id": menu_item.get("item_id"),
+        "product_id": menu_item.get("product_id") or menu_item.get("item_id"),
+        "source_product_id": menu_item.get("source_product_id"),
+        "restaurant_id": (
+            menu_item.get("restaurant_id")
+            or restaurant_id
+            or "restaurant_unknown"
+        ),
+        "source_id": menu_item.get("source_id") or "stored_menu_json",
+        "category_original": menu_item.get("category_original"),
         "name_original": menu_item.get("name_original"),
         "name_ko": menu_item.get("name_ko"),
+        "description_original": menu_item.get("description_original"),
+        "ingredients_listed": menu_item.get("ingredients_listed") or [],
+        "ingredients_from_name": menu_item.get("ingredients_from_name") or [],
         "price_aud": menu_item.get("price_aud"),
+        "price_max_aud": menu_item.get("price_max_aud"),
         "currency": menu_item.get("currency"),
         "one_line_description_ko": menu_item.get("taste_explanation_ko"),
-        "has_options": bool(menu_item.get("options")),
+        "has_options": option_status == "available" and bool(options),
+        "option_status": option_status,
+        "option_group_count": len(options),
+        "option_choice_count": option_choice_count,
+        "variant_status": menu_item.get("variant_status") or "not_checked",
         "image_url": menu_item.get("image_url"),
+        "image_status": menu_item.get("image_status") or (
+            "available" if menu_item.get("image_url") else "not_checked"
+        ),
+        "image_count": len(images) if images else int(bool(menu_item.get("image_url"))),
     }
 
 
 def create_menu_ui_data(menu_data: dict) -> dict:
     """전체 메뉴를 음식·음료 탭과 원본 카테고리별로 구성한다."""
     menu_items = menu_data["items"]
+    restaurant = menu_data.get("restaurant") or {}
+    restaurant_id = restaurant.get("restaurant_id")
     tabs_by_type = {}
     categories_by_type = {}
 
@@ -62,7 +218,7 @@ def create_menu_ui_data(menu_data: dict) -> dict:
             type_categories[category_key] = category_data
             tabs_by_type[item_type]["categories"].append(category_data)
 
-        menu_card = create_menu_card(menu_item)
+        menu_card = create_menu_card(menu_item, restaurant_id)
         type_categories[category_key]["items"].append(menu_card)
         tabs_by_type[item_type]["item_count"] += 1
 
@@ -74,6 +230,8 @@ def create_menu_ui_data(menu_data: dict) -> dict:
             "url": provenance.get("source_url"),
             "extraction_method": provenance.get("extraction_method"),
             "dataset_status": menu_data.get("dataset_status"),
+            "unique_product_count": provenance.get("unique_product_count"),
+            "category_listing_count": provenance.get("category_listing_count"),
         },
         "total_items": len(menu_items),
         "tabs": list(tabs_by_type.values()),

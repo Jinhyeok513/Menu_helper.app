@@ -60,6 +60,7 @@ export function QRScannerModal({ visible, onClose, onScanned }: Props) {
           <View style={styles.cameraArea}>
             <CameraView
               barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+              facing="back"
               onBarcodeScanned={hasScanned ? undefined : handleBarcodeScanned}
               style={StyleSheet.absoluteFill}
             />

@@ -5,11 +5,12 @@ from app_config import settings
 from data_load import load_menu_data
 from find_menu import find_menu_by_id
 from html_menu_parser import UnsupportedMenuPageError
-from menu_ui import create_menu_ui_data
+from menu_ui import create_menu_detail, create_menu_ui_data
 from menu_url_fetcher import (
     MenuPageFetchError,
     MenuURLValidationError,
     import_menu_from_url,
+    import_menu_item_detail_from_url,
 )
 
 
@@ -53,6 +54,35 @@ def create_menu_from_url(request_data: MenuURLRequest) -> dict:
     }
 
 
+@app.post("/menu-sources/url/items/{source_product_id}")
+def read_imported_menu_item(
+    source_product_id: str,
+    request_data: MenuURLRequest,
+) -> dict:
+    """URL과 원본 상품 ID를 함께 사용해 해당 식당의 상세를 다시 조회한다."""
+    try:
+        product = import_menu_item_detail_from_url(
+            request_data.url,
+            source_product_id,
+        )
+    except MenuURLValidationError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except UnsupportedMenuPageError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except MenuPageFetchError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+    return {
+        "status": "ready",
+        "source": {
+            "url": product["source_url"],
+            "restaurant_id": product["restaurant_id"],
+            "source_product_id": product["source_product_id"],
+        },
+        "product": product,
+    }
+
+
 @app.get("/menus/{item_id}")
 def read_menu(item_id: str) -> dict:
     """item_id로 메뉴 하나를 찾아 JSON 응답으로 반환한다."""
@@ -65,7 +95,7 @@ def read_menu(item_id: str) -> dict:
             detail=f"메뉴를 찾지 못했습니다: {item_id}",
         )
 
-    return found_menu
+    return create_menu_detail(found_menu)
 
 
 if __name__ == "__main__":

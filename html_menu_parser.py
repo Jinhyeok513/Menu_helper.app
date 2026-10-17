@@ -66,16 +66,19 @@ def _read_offer(menu_item: dict) -> tuple[int | float | None, str | None]:
     return price, currency
 
 
-def _image_url(value: object, source_url: str) -> str | None:
-    if isinstance(value, str):
-        return urljoin(source_url, value)
-    if isinstance(value, dict):
-        url = value.get("url") or value.get("contentUrl")
-        if isinstance(url, str):
-            return urljoin(source_url, url)
-    if isinstance(value, list) and value:
-        return _image_url(value[0], source_url)
-    return None
+def _image_urls(value: object, source_url: str) -> list[str]:
+    urls = []
+    for image in _as_list(value):
+        url = None
+        if isinstance(image, str):
+            url = image
+        elif isinstance(image, dict):
+            url = image.get("url") or image.get("contentUrl")
+        if isinstance(url, str) and url:
+            absolute_url = urljoin(source_url, url)
+            if absolute_url not in urls:
+                urls.append(absolute_url)
+    return urls
 
 
 class _MenuHTMLParser(HTMLParser):
@@ -286,7 +289,9 @@ def _extract_json_ld_items(
                     "price": price,
                     "currency": currency,
                     "description_original": raw_item.get("description"),
-                    "image_url": _image_url(raw_item.get("image"), source_url),
+                    "image_urls": _image_urls(raw_item.get("image"), source_url),
+                    "image_was_present": "image" in raw_item,
+                    "source_product_id": raw_item.get("@id"),
                 }
             )
 
@@ -327,9 +332,40 @@ def _build_menu_item(
     source_url: str,
 ) -> dict:
     item_id = raw_item.get("item_id") or f"html_{index:03d}"
+    product_id = f"{restaurant_id}_{item_id}"
+    image_urls = raw_item.get("image_urls")
+    if not isinstance(image_urls, list):
+        single_image = raw_item.get("image_url")
+        image_urls = [single_image] if isinstance(single_image, str) and single_image else []
+    retrieved_at = datetime.now(UTC).isoformat()
+    images = [
+        {
+            "image_id": None,
+            "source_product_id": raw_item.get("source_product_id"),
+            "display_order": image_index,
+            "role": "primary" if image_index == 1 else "additional",
+            "url_original": image_url,
+            "thumbnail_url": None,
+            "large_url": None,
+            "width": None,
+            "height": None,
+            "format": None,
+            "source_id": "menu_url_html",
+            "retrieved_at": retrieved_at,
+        }
+        for image_index, image_url in enumerate(image_urls, start=1)
+    ]
+    if images:
+        image_status = "available"
+    elif raw_item.get("image_was_present"):
+        image_status = "unsupported"
+    else:
+        image_status = "not_checked"
     return {
         "item_id": item_id,
         "item_id_source": "source" if raw_item.get("item_id") else "generated",
+        "product_id": product_id,
+        "source_product_id": raw_item.get("source_product_id"),
         "restaurant_id": restaurant_id,
         "item_type": raw_item["item_type"],
         "category_original": raw_item["category_original"],
@@ -344,17 +380,22 @@ def _build_menu_item(
         "ingredients_from_name": [],
         "ingredient_coverage": "unknown",
         "options": [],
+        "option_status": "not_checked",
+        "variants": [],
+        "variant_status": "not_checked",
         "option_note": None,
         "review_note": None,
         "source_id": "menu_url_html",
         "source_url": source_url,
         "source_menu_type": "public_html",
         "source_menu_updated_at": None,
-        "retrieved_at": datetime.now(UTC).date().isoformat(),
+        "retrieved_at": retrieved_at,
         "google_menu_match_verified": False,
         "taste_explanation_ko": None,
         "allergen_safety": None,
-        "image_url": raw_item.get("image_url"),
+        "image_url": images[0]["url_original"] if images else None,
+        "images": images,
+        "image_status": image_status,
     }
 
 

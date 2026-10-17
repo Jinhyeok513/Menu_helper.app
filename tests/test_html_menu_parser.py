@@ -58,7 +58,9 @@ class HTMLMenuParserTest(unittest.TestCase):
               "name": "Cold Beverages",
               "hasMenuItem": {
                 "@type": "MenuItem",
-                "name": "Iced Tea",
+              "name": "Iced Tea",
+              "@id": "iced-tea-1",
+              "image": ["/images/tea-small.jpg", "/images/tea-large.jpg"],
                 "offers": {
                   "@type": "Offer",
                   "price": "6.50",
@@ -77,6 +79,17 @@ class HTMLMenuParserTest(unittest.TestCase):
         self.assertEqual(result["counts"], {"food": 0, "beverage": 1, "total": 1})
         self.assertEqual(result["items"][0]["name_original"], "Iced Tea")
         self.assertEqual(result["items"][0]["price_aud"], 6.5)
+        item = result["items"][0]
+        self.assertEqual(item["source_product_id"], "iced-tea-1")
+        self.assertEqual(item["option_status"], "not_checked")
+        self.assertEqual(item["image_status"], "available")
+        self.assertEqual(
+            [image["url_original"] for image in item["images"]],
+            [
+                "https://example.com/images/tea-small.jpg",
+                "https://example.com/images/tea-large.jpg",
+            ],
+        )
 
 
 if __name__ == "__main__":

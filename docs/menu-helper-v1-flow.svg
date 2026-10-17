@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="930" viewBox="0 0 1400 930" role="img" aria-labelledby="title desc">
+  <title id="title">menu-helper V1 파일 연결 구조</title>
+  <desc id="desc">저장 JSON, URL 또는 QR, 메뉴판 사진이 Python 백엔드에서 공통 메뉴 구조로 변환되고 FastAPI와 React Native 앱에 연결되는 흐름</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#63736b"/>
+    </marker>
+    <style>
+      .title { font: 700 30px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #183f31; }
+      .subtitle { font: 400 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #66736d; }
+      .group { fill: #f8f5ee; stroke: #d7d1c6; stroke-width: 2; }
+      .group-title { font: 700 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #244c3c; }
+      .node { fill: #ffffff; stroke: #b9c6bf; stroke-width: 2; }
+      .input { fill: #fff8dc; stroke: #d6b858; }
+      .ai { fill: #eee8ff; stroke: #8f7bc1; }
+      .api { fill: #e1f1e8; stroke: #4c8a6d; }
+      .mobile { fill: #eaf3ff; stroke: #6087b5; }
+      .store { fill: #fcebea; stroke: #bb746d; }
+      .label { font: 700 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #26332d; text-anchor: middle; }
+      .small { font: 400 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #617069; text-anchor: middle; }
+      .edge { fill: none; stroke: #63736b; stroke-width: 2.2; marker-end: url(#arrow); }
+      .edge-dashed { fill: none; stroke: #8f7bc1; stroke-width: 2.2; stroke-dasharray: 7 6; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect width="1400" height="930" fill="#fbfaf7"/>
+  <text class="title" x="700" y="48" text-anchor="middle">menu-helper V1 파일 연결 구조</text>
+  <text class="subtitle" x="700" y="75" text-anchor="middle">입력 → 공통 메뉴 데이터 → FastAPI → 모바일 화면과 기기 저장</text>
+
+  <rect class="group" x="35" y="105" width="270" height="660" rx="18"/>
+  <text class="group-title" x="170" y="138" text-anchor="middle">입력과 수집</text>
+
+  <rect class="node input" x="70" y="175" width="200" height="70" rx="14"/>
+  <text class="label" x="170" y="204">저장 메뉴 JSON</text>
+  <text class="small" x="170" y="226">Noelles_Cafe_Menu.json</text>
+
+  <rect class="node" x="70" y="275" width="200" height="70" rx="14"/>
+  <text class="label" x="170" y="304">data_load.py</text>
+  <text class="small" x="170" y="326">읽기 · 구조 검사</text>
+
+  <rect class="node input" x="70" y="395" width="200" height="70" rx="14"/>
+  <text class="label" x="170" y="424">URL 또는 QR</text>
+  <text class="small" x="170" y="446">식당 메뉴 주소</text>
+
+  <rect class="node" x="70" y="495" width="200" height="70" rx="14"/>
+  <text class="label" x="170" y="524">menu_url_fetcher.py</text>
+  <text class="small" x="170" y="546">보안 검사 · 웹 요청</text>
+
+  <rect class="node input" x="70" y="615" width="200" height="70" rx="14"/>
+  <text class="label" x="170" y="644">메뉴판 사진</text>
+  <text class="small" x="170" y="666">카메라 · 사진 보관함</text>
+
+  <rect class="group" x="340" y="105" width="400" height="660" rx="18"/>
+  <text class="group-title" x="540" y="138" text-anchor="middle">변환과 메뉴 구조</text>
+
+  <rect class="node" x="380" y="175" width="150" height="70" rx="14"/>
+  <text class="label" x="455" y="204">find_menu.py</text>
+  <text class="small" x="455" y="226">메뉴 검색</text>
+
+  <rect class="node" x="560" y="175" width="145" height="70" rx="14"/>
+  <text class="label" x="632" y="204">menu_ui.py</text>
+  <text class="small" x="632" y="226">목록 · 상세 구조</text>
+
+  <rect class="node" x="380" y="395" width="150" height="70" rx="14"/>
+  <text class="label" x="455" y="424">HTML parser</text>
+  <text class="small" x="455" y="446">html_menu_parser.py</text>
+
+  <rect class="node" x="560" y="395" width="145" height="70" rx="14"/>
+  <text class="label" x="632" y="424">Square parser</text>
+  <text class="small" x="632" y="446">square_menu_parser.py</text>
+
+  <rect class="node ai" x="455" y="615" width="180" height="70" rx="14"/>
+  <text class="label" x="545" y="644">menu_image_parser.py</text>
+  <text class="small" x="545" y="666">사진 OCR → 공통 구조</text>
+
+  <rect class="group" x="775" y="105" width="270" height="660" rx="18"/>
+  <text class="group-title" x="910" y="138" text-anchor="middle">통합 백엔드</text>
+
+  <rect class="node api" x="810" y="235" width="200" height="80" rx="14"/>
+  <text class="label" x="910" y="266">menu_api.py</text>
+  <text class="small" x="910" y="289">목록 · 상세 API</text>
+
+  <rect class="node ai" x="810" y="385" width="200" height="80" rx="14"/>
+  <text class="label" x="910" y="416">llm.py</text>
+  <text class="small" x="910" y="439">한국어 상세 · 조합 설명</text>
+
+  <rect class="node api" x="810" y="535" width="200" height="90" rx="14"/>
+  <text class="label" x="910" y="569">connect_api_llm.py</text>
+  <text class="small" x="910" y="592">FastAPI 통합 서버</text>
+  <text class="small" x="910" y="610">포트 8000</text>
+
+  <rect class="node ai" x="825" y="680" width="170" height="60" rx="14"/>
+  <text class="label" x="910" y="705">Groq API</text>
+  <text class="small" x="910" y="725">텍스트 · Vision</text>
+
+  <rect class="group" x="1080" y="105" width="285" height="660" rx="18"/>
+  <text class="group-title" x="1222" y="138" text-anchor="middle">Expo 모바일 앱</text>
+
+  <rect class="node mobile" x="1118" y="225" width="210" height="75" rx="14"/>
+  <text class="label" x="1223" y="255">menuApi.ts</text>
+  <text class="small" x="1223" y="278">HTTP · 캐시 · 중복 방지</text>
+
+  <rect class="node mobile" x="1118" y="360" width="210" height="75" rx="14"/>
+  <text class="label" x="1223" y="390">App.tsx</text>
+  <text class="small" x="1223" y="413">입력 · 탭 · 화면 이동</text>
+
+  <rect class="node mobile" x="1118" y="495" width="210" height="75" rx="14"/>
+  <text class="label" x="1223" y="525">components + screens</text>
+  <text class="small" x="1223" y="548">목록 · 상세 · 옵션 · 저장</text>
+
+  <rect class="node store" x="1118" y="630" width="210" height="75" rx="14"/>
+  <text class="label" x="1223" y="660">AsyncStorage</text>
+  <text class="small" x="1223" y="683">선택 메뉴 · 설명 캐시</text>
+
+  <path class="edge" d="M170 245 L170 275"/>
+  <path class="edge" d="M270 310 L380 210"/>
+  <path class="edge" d="M530 210 L560 210"/>
+  <path class="edge" d="M170 465 L170 495"/>
+  <path class="edge" d="M270 530 C320 530, 330 430, 380 430"/>
+  <path class="edge" d="M270 530 C360 530, 470 430, 560 430"/>
+  <path class="edge" d="M455 395 C455 320, 555 285, 610 245"/>
+  <path class="edge" d="M632 395 L632 245"/>
+  <path class="edge" d="M170 685 C270 735, 370 700, 455 650"/>
+  <path class="edge" d="M705 210 C755 210, 770 255, 810 275"/>
+  <path class="edge" d="M635 650 C725 650, 755 600, 810 580"/>
+  <path class="edge" d="M910 315 L910 535"/>
+  <path class="edge" d="M910 465 L910 535"/>
+  <path class="edge-dashed" d="M910 680 L910 625"/>
+  <path class="edge-dashed" d="M825 710 C720 710, 690 650, 635 650"/>
+  <path class="edge" d="M1010 580 C1070 580, 1065 262, 1118 262"/>
+  <path class="edge" d="M1223 300 L1223 360"/>
+  <path class="edge" d="M1223 435 L1223 495"/>
+  <path class="edge" d="M1223 570 L1223 630"/>
+
+  <rect x="35" y="800" width="1330" height="90" rx="16" fill="#ffffff" stroke="#d7d1c6" stroke-width="2"/>
+  <text class="group-title" x="70" y="833">공통 설정과 검증</text>
+  <text class="subtitle" x="70" y="860">app_config.py · .env → 모든 백엔드 설정</text>
+  <text class="subtitle" x="500" y="860">tests/* → 파서 · URL · UI 데이터 · LLM 선택 검증</text>
+  <text class="subtitle" x="1030" y="860">README → 실행 방법과 현재 한계</text>
+</svg>

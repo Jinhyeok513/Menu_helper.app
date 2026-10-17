@@ -8,7 +8,10 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.jinhyeok.menuhelper"
+      "bundleIdentifier": "com.jinhyeok.menuhelper",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Menu Helper가 같은 Wi-Fi의 개발용 메뉴 서버에 연결하도록 로컬 네트워크 접근을 허용해 주세요."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -24,9 +27,17 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Menu Helper가 메뉴 QR 코드를 스캔하도록 카메라 접근을 허용해 주세요.",
+          "cameraPermission": "Menu Helper가 메뉴 QR 코드를 스캔하고 메뉴판을 촬영하도록 카메라 접근을 허용해 주세요.",
           "recordAudioAndroid": false,
           "barcodeScannerEnabled": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Menu Helper가 메뉴판 사진을 선택하도록 사진 접근을 허용해 주세요.",
+          "cameraPermission": "Menu Helper가 메뉴 QR 코드를 스캔하고 메뉴판을 촬영하도록 카메라 접근을 허용해 주세요.",
+          "microphonePermission": false
         }
       ]
     ],
