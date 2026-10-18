@@ -16,8 +16,7 @@ from menu_url_fetcher import (
 
 app = FastAPI(title="menu-helper API")
 
-# 현재 학습 단계에서는 확보된 정적 JSON을 서버 시작 시 한 번 읽는다.
-menu_data = load_menu_data(settings.menu_json_path)
+
 
 
 class MenuURLRequest(BaseModel):
