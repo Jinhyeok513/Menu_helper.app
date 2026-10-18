@@ -32,7 +32,7 @@
 
   <rect class="node input" x="70" y="175" width="200" height="70" rx="14"/>
   <text class="label" x="170" y="204">저장 메뉴 JSON</text>
-  <text class="small" x="170" y="226">Noelles_Cafe_Menu.json</text>
+  <text class="small" x="170" y="226">선택 설정 · 없어도 실행</text>
 
   <rect class="node" x="70" y="275" width="200" height="70" rx="14"/>
   <text class="label" x="170" y="304">data_load.py</text>

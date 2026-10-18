@@ -19,6 +19,35 @@ app = FastAPI(title="menu-helper API")
 
 
 
+def _empty_stored_menu_data(dataset_status: str) -> dict:
+    """저장 JSON이 없어도 URL 메뉴 API가 시작될 수 있는 빈 공통 구조다."""
+    return {
+        "restaurant": None,
+        "items": [],
+        "dataset_status": dataset_status,
+        "provenance": {
+            "source_url": None,
+            "extraction_method": None,
+            "unique_product_count": 0,
+            "category_listing_count": 0,
+        },
+    }
+
+
+def _load_configured_menu_data() -> dict:
+    """MENU_JSON_PATH가 있고 실제 파일이 있을 때만 저장 메뉴를 읽는다."""
+    json_path = settings.menu_json_path
+    if json_path is None:
+        return _empty_stored_menu_data("not_configured")
+    if not json_path.is_file():
+        return _empty_stored_menu_data("configured_file_missing")
+    return load_menu_data(json_path)
+
+
+# 저장 JSON은 선택 사항이다. URL·QR·사진 흐름은 이 파일 없이도 실행된다.
+menu_data = _load_configured_menu_data()
+
+
 class MenuURLRequest(BaseModel):
     url: str = Field(min_length=8, max_length=2048)
 
@@ -31,7 +60,7 @@ def read_health() -> dict:
 
 @app.get("/menus")
 def read_menus() -> dict:
-    """정적 JSON을 음식·음료 탭용 목록 구조로 반환한다."""
+    """설정된 저장 JSON을 반환하며, 없으면 빈 메뉴 구조를 반환한다."""
     return create_menu_ui_data(menu_data)
 
 

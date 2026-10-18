@@ -46,7 +46,7 @@
 ## 현재 백엔드 흐름
 
 ```text
-Noelles_Cafe_Menu.json
+선택 저장 메뉴 JSON (`MENU_JSON_PATH`를 설정한 경우만)
         ↓
 data_load.py          JSON 읽기와 기본 구조 검사
         ↓
@@ -59,7 +59,7 @@ llm.py                Groq 기반 구조화된 한국어 설명 생성
 connect_api_llm.py    메뉴 조회 API와 LLM 호출 통합
 ```
 
-URL 입력은 다음 흐름을 추가로 사용합니다.
+기본 URL·QR 입력은 다음 흐름을 사용하며 저장 JSON이 없어도 동작합니다.
 
 ```text
 QR 스캔 또는 URL 입력
@@ -136,7 +136,7 @@ mobile/               목록·상세·옵션 선택·기기 저장 화면
 
 ## 샘플 데이터
 
-현재 코드는 다음 로컬 파일을 사용합니다.
+저장 JSON 조회를 연습할 때만 다음과 같은 로컬 파일을 선택적으로 사용합니다.
 
 ```text
 /absolute/path/to/Noelles_Cafe_Menu.json
@@ -150,7 +150,9 @@ mobile/               목록·상세·옵션 선택·기기 저장 화면
 - Google 메뉴 원본과 동일한 버전인지 확인되지 않음
 - 전체 레시피와 알레르기 안전 여부가 확인된 데이터가 아님
 
-원본 샘플 데이터는 현재 이 저장소에 포함하지 않습니다.
+원본 샘플 데이터는 현재 이 저장소에 포함하지 않습니다. `MENU_JSON_PATH`를
+설정하지 않아도 백엔드는 시작되며 URL·QR·사진 메뉴 기능을 사용할 수 있습니다.
+이 경우 `GET /menus`는 `total_items: 0`인 빈 공통 메뉴 구조를 반환합니다.
 
 ### 공개 저장소의 데이터·이미지 범위
 
@@ -175,7 +177,7 @@ Groq 설명 생성을 사용하려면 프로젝트 루트의 Git 제외 파일 `
 ```text
 GROQ_API_KEY=발급받은_API_키
 GROQ_MAX_RETRIES=0
-MENU_JSON_PATH=/absolute/path/to/Noelles_Cafe_Menu.json
+# 선택 사항: MENU_JSON_PATH=/absolute/path/to/menu.json
 ```
 
 사진 추출 모델은 기본값을 사용하거나 필요할 때만 변경합니다.
@@ -254,7 +256,6 @@ python3 -m http.server 9000 --directory fixtures --bind 0.0.0.0
 두 번째 터미널:
 
 ```bash
-export MENU_JSON_PATH="/absolute/path/to/Noelles_Cafe_Menu.json"
 export MENU_ALLOW_PRIVATE_URLS=true
 python menu_api.py
 ```
@@ -330,8 +331,8 @@ python scripts/generate_menu_qr.py \
 
 ## 현재 한계
 
-- 정적 JSON을 서버 시작 시 한 번 읽으므로 파일 변경 후 서버를 재시작해야 합니다.
-- 원본 샘플 JSON은 저장소에 없으므로 `MENU_JSON_PATH` 설정이 필요합니다.
+- 저장 JSON 기능을 사용할 때는 `MENU_JSON_PATH`의 파일을 서버 시작 시 한 번 읽으므로 파일 변경 후 서버를 재시작해야 합니다.
+- 원본 샘플 JSON은 저장소에 없으며 선택 사항입니다. 경로가 없거나 파일이 없으면 빈 저장 메뉴를 반환하고 URL·QR·사진 기능은 계속 사용할 수 있습니다.
 - HTML 추출은 data 속성, JSON-LD `MenuSection`/`MenuItem`, 현재 Square Online 공개 storefront API를 지원합니다. JSON-LD에서 확인할 수 없는 옵션은 `not_checked`입니다.
 - Square의 공개 응답 구조·버전·CDN 호스트가 바뀌면 추출기도 갱신해야 합니다.
 - 현재 Square 검증 사례의 `options.data`는 비어 있었고 선택 옵션은 `modifiers.data`, 사이즈는 별도 SKU 응답에 있었습니다. 공식 Square Catalog API와 동일한 구조라고 가정하지 않습니다.

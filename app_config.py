@@ -28,9 +28,17 @@ def _read_allowed_hosts() -> tuple[str, ...]:
     )
 
 
+def _read_optional_menu_json_path() -> Path | None:
+    """설정한 경우에만 저장 메뉴 JSON 경로를 반환한다."""
+    raw_path = os.environ.get("MENU_JSON_PATH", "").strip()
+    if not raw_path:
+        return None
+    return Path(raw_path).expanduser()
+
+
 @dataclass(frozen=True)
 class AppSettings:
-    menu_json_path: Path
+    menu_json_path: Path | None
     api_host: str
     api_port: int
     allow_private_menu_urls: bool
@@ -45,14 +53,9 @@ class AppSettings:
 
 def load_app_settings() -> AppSettings:
     """환경변수를 읽어 백엔드 실행 설정을 한곳에서 만든다."""
-    default_menu_path = (
-        Path.home() / "Desktop" / "Menu_helper" / "Noelles_Cafe_Menu.json"
-    )
-
     return AppSettings(
-        menu_json_path=Path(
-            os.environ.get("MENU_JSON_PATH", default_menu_path)
-        ).expanduser(),
+        # URL·QR·사진 메뉴는 로컬 샘플 JSON 없이도 실행되어야 한다.
+        menu_json_path=_read_optional_menu_json_path(),
         api_host=os.environ.get("MENU_API_HOST", "0.0.0.0"),
         api_port=int(os.environ.get("MENU_API_PORT", "8000")),
         allow_private_menu_urls=_read_bool("MENU_ALLOW_PRIVATE_URLS"),
