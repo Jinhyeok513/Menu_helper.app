@@ -36,9 +36,34 @@ def _read_optional_menu_json_path() -> Path | None:
     return Path(raw_path).expanduser()
 
 
+def _read_optional_database_url() -> str | None:
+    """비어 있는 DATABASE_URL은 설정되지 않은 상태로 구분한다."""
+    database_url = os.environ.get("DATABASE_URL", "").strip()
+    return database_url or None
+
+
+def _read_performance_log_path() -> Path:
+    configured_path = Path(
+        os.environ.get(
+            "MENU_PERFORMANCE_LOG_PATH",
+            "performance_logs/v1_events.jsonl",
+        )
+    ).expanduser()
+    return (
+        configured_path
+        if configured_path.is_absolute()
+        else BACKEND_ROOT / configured_path
+    )
+
+
 @dataclass(frozen=True)
 class AppSettings:
     menu_json_path: Path | None
+    database_url: str | None
+    database_connect_timeout_seconds: float
+    database_statement_timeout_ms: int
+    source_artifact_max_bytes: int
+    source_artifact_max_compressed_bytes: int
     api_host: str
     api_port: int
     allow_private_menu_urls: bool
@@ -49,6 +74,8 @@ class AppSettings:
     groq_vision_model: str
     groq_timeout_seconds: float
     groq_max_retries: int
+    performance_logging_enabled: bool
+    performance_log_path: Path
 
 
 def load_app_settings() -> AppSettings:
@@ -56,6 +83,20 @@ def load_app_settings() -> AppSettings:
     return AppSettings(
         # URL·QR·사진 메뉴는 로컬 샘플 JSON 없이도 실행되어야 한다.
         menu_json_path=_read_optional_menu_json_path(),
+        # V1.1: 메뉴 파일 경로가 아니라 식당별 스냅샷을 서버 DB에서 관리한다.
+        database_url=_read_optional_database_url(),
+        database_connect_timeout_seconds=float(
+            os.environ.get("MENU_DATABASE_CONNECT_TIMEOUT_SECONDS", "5")
+        ),
+        database_statement_timeout_ms=int(
+            os.environ.get("MENU_DATABASE_STATEMENT_TIMEOUT_MS", "10000")
+        ),
+        source_artifact_max_bytes=int(
+            os.environ.get("MENU_SOURCE_ARTIFACT_MAX_BYTES", "2000000")
+        ),
+        source_artifact_max_compressed_bytes=int(
+            os.environ.get("MENU_SOURCE_ARTIFACT_MAX_COMPRESSED_BYTES", "750000")
+        ),
         api_host=os.environ.get("MENU_API_HOST", "0.0.0.0"),
         api_port=int(os.environ.get("MENU_API_PORT", "8000")),
         allow_private_menu_urls=_read_bool("MENU_ALLOW_PRIVATE_URLS"),
@@ -77,6 +118,8 @@ def load_app_settings() -> AppSettings:
         ),
         # 한 번의 사용자 요청이 공급자 API를 여러 번 호출하지 않도록 기본 재시도를 끈다.
         groq_max_retries=int(os.environ.get("GROQ_MAX_RETRIES", "0")),
+        performance_logging_enabled=_read_bool("MENU_PERFORMANCE_LOG_ENABLED"),
+        performance_log_path=_read_performance_log_path(),
     )
 
 

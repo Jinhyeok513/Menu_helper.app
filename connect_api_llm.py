@@ -13,7 +13,14 @@ from llm import (
     generate_menu_one_line_description,
 )
 from menu_image_parser import VISION_PROMPT_VERSION, extract_menu_from_image
-from menu_api import app, menu_data
+from menu_api import (
+    _database_http_error,
+    _menu_http_error,
+    app,
+    load_snapshot_item_detail,
+    menu_data,
+    menu_store,
+)
 from menu_ui import create_menu_detail, create_menu_ui_data
 from menu_url_fetcher import (
     MenuPageFetchError,
@@ -21,6 +28,7 @@ from menu_url_fetcher import (
     import_menu_item_detail_from_url,
 )
 from html_menu_parser import UnsupportedMenuPageError
+from v1_1_menu_store import MenuDatabaseError
 
 
 class MenuSelectionRequest(BaseModel):
@@ -47,6 +55,8 @@ class MenuDescriptionItem(BaseModel):
     source_product_id: str | None = Field(default=None, max_length=300)
     restaurant_id: str = Field(min_length=1, max_length=300)
     source_id: str = Field(min_length=1, max_length=300)
+    snapshot_id: str | None = Field(default=None, max_length=100)
+    snapshot_version: int | None = Field(default=None, ge=1)
     category_original: str | None = Field(default=None, max_length=500)
     name_original: str = Field(min_length=1, max_length=500)
     name_ko: str | None = Field(default=None, max_length=500)
@@ -178,17 +188,44 @@ def create_imported_menu_explanation(
     request_data: URLMenuExplanationRequest,
 ) -> dict:
     """같은 식당 URL에서 상세를 다시 확인한 뒤 선택 조합을 설명한다."""
+    operation = (
+        "combination_explanation"
+        if request_data.include_combination
+        else "detail_explanation"
+    )
     try:
         menu_item = import_menu_item_detail_from_url(
             request_data.url,
             source_product_id,
+            operation=operation,
         )
     except MenuURLValidationError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+        raise _menu_http_error(
+            operation=operation,
+            status_code=400,
+            detail=str(error),
+            error_code="INVALID_MENU_URL",
+            failure_stage="validation",
+            error=error,
+        ) from error
     except UnsupportedMenuPageError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+        raise _menu_http_error(
+            operation=operation,
+            status_code=422,
+            detail=str(error),
+            error_code="UNSUPPORTED_MENU_STRUCTURE",
+            failure_stage="extraction",
+            error=error,
+        ) from error
     except MenuPageFetchError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
+        raise _menu_http_error(
+            operation=operation,
+            status_code=502,
+            detail=str(error),
+            error_code=error.error_code,
+            failure_stage="source_request",
+            error=error,
+        ) from error
 
     explanation = _generate_explanation_or_raise(menu_item, request_data)
     return {
@@ -196,6 +233,25 @@ def create_imported_menu_explanation(
         "explanation": explanation,
         "generation": explanation_generation_metadata(
             "combination" if request_data.include_combination else "detail"
+        ),
+    }
+
+
+@app.post("/menu-snapshots/{snapshot_id}/items/{item_identifier}/explanation")
+def create_snapshot_menu_explanation(
+    snapshot_id: str,
+    item_identifier: str,
+    request_data: MenuSelectionRequest | None = None,
+) -> dict:
+    """V1.1 저장 스냅샷의 실제 옵션으로 설명과 선택 조합을 검증한다."""
+    detail = load_snapshot_item_detail(snapshot_id, item_identifier)
+    selection = request_data or MenuSelectionRequest()
+    explanation = _generate_explanation_or_raise(detail, selection)
+    return {
+        "menu": detail,
+        "explanation": explanation,
+        "generation": explanation_generation_metadata(
+            "combination" if selection.include_combination else "detail"
         ),
     }
 

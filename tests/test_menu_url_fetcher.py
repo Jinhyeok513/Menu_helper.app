@@ -1,11 +1,17 @@
+import socket
 import unittest
 from dataclasses import replace
+from email.message import Message
+from io import BytesIO
 from unittest.mock import patch
+from urllib.error import HTTPError, URLError
 
 from app_config import settings
+from html_menu_parser import UnsupportedMenuPageError
 from menu_url_fetcher import (
     MenuPageFetchError,
     MenuURLValidationError,
+    fetch_menu_html,
     import_menu_from_url,
     import_menu_item_detail_from_url,
     validate_menu_url,
@@ -34,6 +40,88 @@ class MenuURLValidationTest(unittest.TestCase):
         )
 
         self.assertEqual(result, "http://127.0.0.1:9000/menu.html")
+
+    @patch("menu_url_fetcher.record_performance_event")
+    @patch("menu_url_fetcher.build_opener")
+    @patch("menu_url_fetcher.validate_menu_url")
+    def test_source_timeout_has_stable_code_and_safe_log(
+        self,
+        validate_url,
+        build_opener,
+        record_event,
+    ) -> None:
+        validate_url.return_value = "https://example.com/private?table=secret"
+        build_opener.return_value.open.side_effect = URLError(socket.timeout())
+
+        with self.assertRaises(MenuPageFetchError) as raised:
+            fetch_menu_html("https://example.com/private?table=secret")
+
+        self.assertEqual(raised.exception.error_code, "SOURCE_TIMEOUT")
+        self.assertTrue(raised.exception.is_timeout)
+        event = record_event.call_args.kwargs
+        self.assertEqual(event["stage"], "source_request")
+        self.assertEqual(event["source_host"], "example.com")
+        self.assertEqual(event["error_code"], "SOURCE_TIMEOUT")
+        self.assertNotIn("url", event)
+
+    @patch("menu_url_fetcher.record_performance_event")
+    @patch("menu_url_fetcher.build_opener")
+    @patch("menu_url_fetcher.validate_menu_url")
+    def test_source_http_error_keeps_status_without_response_body(
+        self,
+        validate_url,
+        build_opener,
+        record_event,
+    ) -> None:
+        validate_url.return_value = "https://example.com/menu"
+        headers = Message()
+        headers["Content-Type"] = "text/html; charset=utf-8"
+        source_error = HTTPError(
+            "https://example.com/menu",
+            503,
+            "unavailable",
+            headers,
+            BytesIO(b""),
+        )
+        build_opener.return_value.open.side_effect = source_error
+
+        with self.assertRaises(MenuPageFetchError) as raised:
+            fetch_menu_html("https://example.com/menu")
+
+        self.assertEqual(raised.exception.error_code, "SOURCE_HTTP_ERROR")
+        self.assertEqual(raised.exception.http_status, 503)
+        event = record_event.call_args.kwargs
+        self.assertEqual(event["http_status"], 503)
+        self.assertEqual(event["content_type"], "text/html")
+        self.assertEqual(event["error_code"], "SOURCE_HTTP_ERROR")
+        source_error.close()
+
+    @patch("menu_url_fetcher.record_performance_event")
+    @patch("menu_url_fetcher.fetch_menu_html")
+    def test_unsupported_structure_is_logged_as_extraction_failure(
+        self,
+        fetch_html,
+        record_event,
+    ) -> None:
+        fetch_html.return_value = (
+            "<html><script src='dynamic-app.js'></script></html>",
+            "https://example.com/menu",
+        )
+
+        with self.assertRaises(UnsupportedMenuPageError) as raised:
+            import_menu_from_url("https://example.com/menu")
+
+        self.assertIn("JSON-LD MenuItem", str(raised.exception))
+        extraction_event = next(
+            call.kwargs
+            for call in record_event.call_args_list
+            if call.kwargs.get("event") == "menu_parse_transform"
+        )
+        self.assertEqual(extraction_event["stage"], "extraction")
+        self.assertEqual(
+            extraction_event["error_code"],
+            "UNSUPPORTED_MENU_STRUCTURE",
+        )
 
     @patch("menu_url_fetcher.fetch_menu_json")
     @patch("menu_url_fetcher.fetch_menu_html")

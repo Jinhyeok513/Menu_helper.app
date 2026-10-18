@@ -4,6 +4,11 @@ from datetime import UTC, datetime
 from html.parser import HTMLParser
 from urllib.parse import urljoin
 
+from v1_1_common_extractor import (
+    extract_semantic_html_items,
+    resolve_json_ld_references,
+)
+
 
 class UnsupportedMenuPageError(ValueError):
     """지원하는 HTML 구조에서 메뉴 항목을 찾지 못했을 때 발생한다."""
@@ -45,16 +50,22 @@ def _parse_price(value: object) -> int | float | None:
 
 
 def _infer_item_type(category_name: str, explicit_type: str | None) -> str:
-    if explicit_type in {"food", "beverage"}:
+    if explicit_type in {"food", "beverage", "unknown"}:
         return explicit_type
 
     beverage_words = ("beverage", "drink", "coffee", "tea", "juice")
     if any(word in category_name.lower() for word in beverage_words):
         return "beverage"
-    return "food"
+    food_words = ("food", "breakfast", "lunch", "dinner", "main", "dessert")
+    if any(word in category_name.lower() for word in food_words):
+        return "food"
+    # V1.1: 분류 근거가 없을 때 음식으로 단정하지 않고 미확인 상태를 보존한다.
+    return "unknown"
 
 
-def _read_offer(menu_item: dict) -> tuple[int | float | None, str | None]:
+def _read_offer(
+    menu_item: dict,
+) -> tuple[int | float | None, int | float | None, str | None]:
     offers = _as_list(menu_item.get("offers"))
     first_offer = next((offer for offer in offers if isinstance(offer, dict)), {})
     price = _parse_price(
@@ -62,8 +73,9 @@ def _read_offer(menu_item: dict) -> tuple[int | float | None, str | None]:
         or first_offer.get("lowPrice")
         or menu_item.get("price")
     )
+    price_max = _parse_price(first_offer.get("highPrice"))
     currency = first_offer.get("priceCurrency") or menu_item.get("priceCurrency")
-    return price, currency
+    return price, price_max, currency
 
 
 def _image_urls(value: object, source_url: str) -> list[str]:
@@ -244,11 +256,42 @@ def _extract_json_ld_items(
     documents: list[object],
     source_url: str,
 ) -> tuple[str | None, list[dict]]:
+    documents = resolve_json_ld_references(documents)
     restaurant_name = None
     menu_items: list[dict] = []
     seen_items: set[tuple] = set()
 
-    for node in _iter_json_nodes(documents):
+    def append_item(raw_item: dict, category_name: str) -> None:
+        if "menuitem" not in _schema_types(raw_item.get("@type")):
+            return
+        name = raw_item.get("name")
+        if not isinstance(name, str) or not name.strip():
+            return
+        price, price_max, currency = _read_offer(raw_item)
+        deduplication_key = (category_name, name, price, price_max, currency)
+        if deduplication_key in seen_items:
+            return
+        seen_items.add(deduplication_key)
+        menu_items.append(
+            {
+                "name_original": name.strip(),
+                "name_ko": None,
+                "category_original": category_name,
+                "category_ko": None,
+                "item_type": _infer_item_type(category_name, None),
+                "price": price,
+                "price_max": price_max,
+                "currency": currency,
+                "description_original": raw_item.get("description"),
+                "image_urls": _image_urls(raw_item.get("image"), source_url),
+                "image_was_present": "image" in raw_item,
+                "source_product_id": raw_item.get("@id"),
+                "extraction_evidence": {"relationship": "json_ld_menu_item"},
+            }
+        )
+
+    all_nodes = list(_iter_json_nodes(documents))
+    for node in all_nodes:
         node_types = _schema_types(node.get("@type"))
         if restaurant_name is None and node_types.intersection(
             {"restaurant", "foodestablishment", "cafeorcoffeeshop"}
@@ -264,36 +307,16 @@ def _extract_json_ld_items(
         for raw_item in _as_list(
             node.get("hasMenuItem") or node.get("menuItem")
         ):
-            if not isinstance(raw_item, dict):
-                continue
-            if "menuitem" not in _schema_types(raw_item.get("@type")):
-                continue
+            if isinstance(raw_item, dict):
+                append_item(raw_item, category_name)
 
-            name = raw_item.get("name")
-            if not isinstance(name, str) or not name.strip():
-                continue
-
-            price, currency = _read_offer(raw_item)
-            deduplication_key = (category_name, name, price, currency)
-            if deduplication_key in seen_items:
-                continue
-            seen_items.add(deduplication_key)
-
-            menu_items.append(
-                {
-                    "name_original": name.strip(),
-                    "name_ko": None,
-                    "category_original": category_name,
-                    "category_ko": None,
-                    "item_type": _infer_item_type(category_name, None),
-                    "price": price,
-                    "currency": currency,
-                    "description_original": raw_item.get("description"),
-                    "image_urls": _image_urls(raw_item.get("image"), source_url),
-                    "image_was_present": "image" in raw_item,
-                    "source_product_id": raw_item.get("@id"),
-                }
-            )
+    # Some publishers expose only standalone MenuItem nodes through @graph.
+    # Run this fallback only when no section items were found, otherwise nested
+    # section items would be duplicated as uncategorised listings.
+    if not menu_items:
+        for node in all_nodes:
+            if "menuitem" in _schema_types(node.get("@type")):
+                append_item(node, "Uncategorised")
 
     return restaurant_name, menu_items
 
@@ -328,7 +351,7 @@ def _build_menu_item(
     raw_item: dict,
     index: int,
     restaurant_id: str,
-    default_currency: str,
+    default_currency: str | None,
     source_url: str,
 ) -> dict:
     item_id = raw_item.get("item_id") or f"html_{index:03d}"
@@ -361,6 +384,9 @@ def _build_menu_item(
         image_status = "unsupported"
     else:
         image_status = "not_checked"
+    currency = raw_item.get("currency") or default_currency
+    price = raw_item.get("price")
+    price_max = raw_item.get("price_max")
     return {
         "item_id": item_id,
         "item_id_source": "source" if raw_item.get("item_id") else "generated",
@@ -373,8 +399,12 @@ def _build_menu_item(
         "name_original": raw_item["name_original"],
         "name_ko": raw_item.get("name_ko"),
         "description_original": raw_item.get("description_original"),
-        "price_aud": raw_item.get("price"),
-        "currency": raw_item.get("currency") or default_currency,
+        # V1.1: 통화 중립 금액을 기준으로 두고 기존 AUD 필드는 호환용으로 유지한다.
+        "price_amount": price,
+        "price_max_amount": price_max,
+        "price_aud": price if currency == "AUD" else None,
+        "price_max_aud": price_max if currency == "AUD" else None,
+        "currency": currency,
         "ingredients_listed": [],
         "ingredients_listed_ko": [],
         "ingredients_from_name": [],
@@ -396,6 +426,7 @@ def _build_menu_item(
         "image_url": images[0]["url_original"] if images else None,
         "images": images,
         "image_status": image_status,
+        "extraction_evidence": raw_item.get("extraction_evidence") or {},
     }
 
 
@@ -416,8 +447,13 @@ def parse_menu_html(html: str, source_url: str) -> dict:
         extraction_method = "json_ld_menu"
 
     if not raw_items:
+        # V1.1: 회사별 CSS가 아니라 같은 상품 컨테이너 안의 이름·가격 관계를 사용한다.
+        raw_items = extract_semantic_html_items(html)
+        extraction_method = "semantic_html_containers"
+
+    if not raw_items:
         raise UnsupportedMenuPageError(
-            "지원하는 data-menu 속성 또는 JSON-LD MenuItem을 찾지 못했습니다."
+            "지원하는 data-menu 속성, JSON-LD MenuItem 또는 이름·가격 상품 영역을 찾지 못했습니다."
         )
 
     restaurant_name = restaurant_name or parser.page_title or "Unknown restaurant"
@@ -425,7 +461,7 @@ def parse_menu_html(html: str, source_url: str) -> dict:
         parser.restaurant.get("restaurant_id")
         or f"html_{_slugify(restaurant_name)}"
     )
-    default_currency = parser.restaurant.get("currency") or "AUD"
+    default_currency = parser.restaurant.get("currency")
     items = [
         _build_menu_item(
             raw_item,
@@ -438,7 +474,7 @@ def parse_menu_html(html: str, source_url: str) -> dict:
     ]
 
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "dataset_status": "extracted_unverified",
         "restaurant": {
             "restaurant_id": restaurant_id,
@@ -452,6 +488,11 @@ def parse_menu_html(html: str, source_url: str) -> dict:
                 "지원하는 HTML 구조에서 읽은 결과이며 원본과 대조가 필요합니다.",
                 "동적 자바스크립트·로그인·접근 제한 페이지는 지원하지 않습니다.",
             ],
+            "validation_status": (
+                "needs_review"
+                if extraction_method == "semantic_html_containers"
+                else "unverified"
+            ),
         },
         "counts": {
             "food": sum(item["item_type"] == "food" for item in items),
@@ -459,6 +500,15 @@ def parse_menu_html(html: str, source_url: str) -> dict:
                 item["item_type"] == "beverage" for item in items
             ),
             "total": len(items),
+            **(
+                {
+                    "unknown": sum(
+                        item["item_type"] == "unknown" for item in items
+                    )
+                }
+                if any(item["item_type"] == "unknown" for item in items)
+                else {}
+            ),
         },
         "items": items,
     }

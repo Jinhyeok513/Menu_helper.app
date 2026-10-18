@@ -1,4 +1,4 @@
-export type MenuItemType = 'food' | 'beverage';
+export type MenuItemType = 'food' | 'beverage' | 'unknown';
 export type DataCheckStatus =
   | 'available'
   | 'none'
@@ -16,6 +16,7 @@ export type MenuOptionChoice = {
   sold_out: boolean;
   hidden: boolean;
   price_delta_aud: number | null;
+  price_delta_amount?: number | null;
   price_kind: 'additional';
   price_status: 'confirmed' | 'unknown';
   currency: string | null;
@@ -45,6 +46,7 @@ export type MenuVariant = {
   selected_by_default: boolean | null;
   sold_out: boolean;
   price_aud: number | null;
+  price_amount?: number | null;
   price_kind: 'full_product_price';
   price_status: 'confirmed' | 'unknown';
   currency: string | null;
@@ -77,6 +79,9 @@ export type MenuCard = {
   item_id: string;
   product_id: string;
   source_product_id: string | null;
+  menu_source_id: string | null;
+  snapshot_id: string | null;
+  snapshot_version: number | null;
   restaurant_id: string;
   source_id: string;
   category_original: string | null;
@@ -87,6 +92,8 @@ export type MenuCard = {
   ingredients_from_name: string[];
   price_aud: number | null;
   price_max_aud: number | null;
+  price_amount: number | null;
+  price_max_amount: number | null;
   currency: string | null;
   one_line_description_ko: string | null;
   description_status?: DescriptionStatus;
@@ -124,6 +131,19 @@ export type MenuUIData = {
     dataset_status: string | null;
     unique_product_count: number | null;
     category_listing_count: number | null;
+    menu_source_id: string | null;
+    snapshot_id: string | null;
+    snapshot_version: number | null;
+    last_checked_at: string | null;
+    data_origin:
+      | 'fresh_extraction'
+      | 'stored_reuse'
+      | 'stored_fallback'
+      | 'stored_snapshot'
+      | null;
+    is_stale: boolean;
+    refresh_status: string | null;
+    validation_status: string | null;
   };
   total_items: number;
   tabs: MenuTab[];
@@ -138,12 +158,17 @@ export type MenuItemDetail = {
   item_id: string;
   product_id: string;
   source_product_id: string | null;
+  menu_source_id: string | null;
+  snapshot_id: string | null;
+  snapshot_version: number | null;
   restaurant_id: string;
   name_original: string;
   name_ko?: string | null;
   description_original?: string | null;
   price_aud: number | null;
   price_max_aud: number | null;
+  price_amount: number | null;
+  price_max_amount: number | null;
   currency: string | null;
   options: MenuOptionGroup[];
   option_status: DataCheckStatus;
@@ -237,6 +262,7 @@ export type CachedMenuDescription = {
   restaurant_id: string;
   source_id: string;
   product_id: string;
+  snapshot_id?: string | null;
   language: 'ko';
   kind: DescriptionKind;
   input_fingerprint: string;
@@ -256,6 +282,9 @@ export type SavedMenuSelection = {
   source_url: string | null;
   product_id: string;
   source_product_id: string | null;
+  menu_source_id?: string | null;
+  snapshot_id?: string | null;
+  snapshot_version?: number | null;
   item_id: string;
   menu_name: string;
   currency: string | null;
@@ -272,4 +301,24 @@ export type MenuImageImportResponse = {
   status: 'ready';
   menu: MenuUIData;
   details: Record<string, MenuItemDetail>;
+};
+
+export type PerformanceOperation =
+  | 'backend_wakeup'
+  | 'stored_menu_load'
+  | 'url_menu_import'
+  | 'detail_explanation'
+  | 'combination_explanation'
+  | 'one_line_description';
+
+export type PerformanceCacheStatus = 'hit' | 'miss' | 'coalesced' | 'not_applicable';
+
+export type PerformanceTrace = {
+  request_id: string;
+  operation: PerformanceOperation;
+  started_at_ms: number;
+  attempt: number;
+  retry_count: number;
+  retry_limit: number;
+  cache_status: PerformanceCacheStatus;
 };

@@ -42,6 +42,16 @@ npm start
 
 카메라 권한, 사진 보관함, 기기 저장 모듈을 포함하므로 Development build를 기준으로 합니다.
 
+URL·QR 메뉴를 불러올 때 앱은 먼저 `/health`를 최대 45초 한 번 확인합니다. 이는
+Render 무료 서버의 시작 대기와 실제 메뉴 추출을 구분하기 위한 요청이며, 메뉴
+추출이나 LLM 호출을 자동 재시도하지 않습니다. 서버가 준비되면 실제 URL 메뉴
+요청은 기존 15초 제한으로 한 번 실행됩니다.
+
+오류 화면은 가능한 경우 문의용 `X-Request-ID`를 표시하고, 사용자가 직접
+`URL 다시 시도`를 선택할 수 있습니다. 앱 자체 시간 초과, 명시적 요청 취소,
+네트워크 연결 실패, 원본 식당 서버 실패, 미지원 메뉴 구조는 서로 다른 상태로
+분류합니다.
+
 ```bash
 npm run prebuild -- --clean
 npm run ios -- --device
@@ -83,6 +93,16 @@ npm start
 - Groq `429`·`502`·시간 초과는 자동 재시도하지 않고 화면에서 다시 시도할 시점을 사용자가 결정
 
 사진 원본은 앱의 요청에만 사용하고 서버나 기기 저장 목록에 영구 복사하지 않습니다. 사진 추출 결과는 AI 판독값이므로 화면에서 `미확인` 출처로 표시합니다.
+
+## 실제 iPhone 성능 측정
+
+일반 실행에서는 추가 측정 요청을 보내지 않습니다. V1/V2 비교 때만 `mobile/.env`에 아래 값을 설정하고 Metro를 다시 시작합니다.
+
+```text
+EXPO_PUBLIC_PERFORMANCE_LOG_ENABLED=true
+```
+
+백엔드 `.env`의 `MENU_PERFORMANCE_LOG_ENABLED=true`도 함께 필요합니다. 그 상태에서 URL의 `링크 불러오기`, 메뉴 상세 진입, `선택 조합 설명 보기`를 사용하면 API 응답 시점과 React commit 뒤 다음 프레임 시점이 같은 요청 ID로 `performance_logs/v1_events.jsonl`에 쌓입니다. 설명 캐시 hit·miss는 분리해서 기록됩니다. 실제 URL, 메뉴 내용, API 키는 성능 로그에 넣지 않습니다. 집계 방법과 측정 한계는 `../docs/V1_PERFORMANCE_BASELINE.md`를 참고합니다.
 
 ## 2026-10-17 검증 상태
 

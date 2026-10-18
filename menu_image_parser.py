@@ -137,6 +137,8 @@ def build_menu_data_from_ocr(
                 "description_original": raw_item.get("description_original"),
                 "price_aud": price,
                 "price_max_aud": None,
+                "price_amount": price,
+                "price_max_amount": None,
                 "currency": currency,
                 "ingredients_listed": [],
                 "ingredients_listed_ko": [],

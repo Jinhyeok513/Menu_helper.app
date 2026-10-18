@@ -21,6 +21,10 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+performance_logs/
+backups/
+*.dump
+*.dump.gz
 
 # JavaScript dependencies and caches
 node_modules/

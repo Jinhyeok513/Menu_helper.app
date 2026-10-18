@@ -67,7 +67,7 @@ export function MenuCardView({ menuItem, onPress }: Props) {
           {showOriginalName ? <Text style={styles.originalName}>{menuItem.name_original}</Text> : null}
         </View>
         <Text style={styles.price}>
-          {formatPrice(menuItem.price_aud, menuItem.price_max_aud, menuItem.currency)}
+          {formatPrice(menuItem.price_amount, menuItem.price_max_amount, menuItem.currency)}
         </Text>
       </View>
 

@@ -15,7 +15,11 @@ import { OptionGroupView } from '../components/OptionGroupView';
 import {
   generateMenuExplanation,
   loadStoredMenuItemDetail,
+  loadSnapshotMenuItemDetail,
   loadURLMenuItemDetail,
+  recordMobileOperationFailed,
+  recordMobileScreenDisplayed,
+  startPerformanceTrace,
 } from '../menuApi';
 import {
   MenuCard,
@@ -23,6 +27,7 @@ import {
   MenuItemDetail,
   MenuOptionGroup,
   MenuSelection,
+  PerformanceTrace,
 } from '../menuTypes';
 import {
   buildSavedMenuSelection,
@@ -38,6 +43,7 @@ import {
 type Props = {
   card: MenuCard;
   sourceURL: string | null;
+  snapshotID: string | null;
   restaurantName: string;
   initialDetail?: MenuItemDetail;
   onBack: () => void;
@@ -61,6 +67,7 @@ function formatPrice(amount: number | null, currency: string | null): string {
 export function MenuDetailScreen({
   card,
   sourceURL,
+  snapshotID,
   restaurantName,
   initialDetail,
   onBack,
@@ -81,6 +88,28 @@ export function MenuDetailScreen({
   const [detailExplanationError, setDetailExplanationError] = useState<string | null>(null);
   const [detailExplanationAttempt, setDetailExplanationAttempt] = useState(0);
   const combinationRequestRef = useRef(0);
+  const pendingDetailDisplayTraceRef = useRef<PerformanceTrace | null>(null);
+  const pendingCombinationDisplayTraceRef = useRef<PerformanceTrace | null>(null);
+
+  useEffect(() => {
+    const trace = pendingDetailDisplayTraceRef.current;
+    if (!trace || !detailExplanation) {
+      return;
+    }
+    pendingDetailDisplayTraceRef.current = null;
+    const frameID = requestAnimationFrame(() => recordMobileScreenDisplayed(trace));
+    return () => cancelAnimationFrame(frameID);
+  }, [detailExplanation]);
+
+  useEffect(() => {
+    const trace = pendingCombinationDisplayTraceRef.current;
+    if (!trace || !combinationExplanation) {
+      return;
+    }
+    pendingCombinationDisplayTraceRef.current = null;
+    const frameID = requestAnimationFrame(() => recordMobileScreenDisplayed(trace));
+    return () => cancelAnimationFrame(frameID);
+  }, [combinationExplanation]);
 
   useEffect(() => {
     if (initialDetail) {
@@ -92,8 +121,9 @@ export function MenuDetailScreen({
       setIsLoading(true);
       setErrorMessage(null);
       try {
-        const loadedDetail =
-          card.source_product_id && sourceURL
+        const loadedDetail = snapshotID
+          ? await loadSnapshotMenuItemDetail(snapshotID, card.product_id)
+          : card.source_product_id && sourceURL
             ? await loadURLMenuItemDetail(sourceURL, card.source_product_id)
             : await loadStoredMenuItemDetail(card.item_id);
         if (isActive) {
@@ -116,13 +146,18 @@ export function MenuDetailScreen({
     return () => {
       isActive = false;
     };
-  }, [card.item_id, card.source_product_id, initialDetail, sourceURL]);
+  }, [card.item_id, card.product_id, card.source_product_id, initialDetail, snapshotID, sourceURL]);
 
   useEffect(() => {
     if (!detail) {
       return;
     }
     let isActive = true;
+    const trace = startPerformanceTrace(
+      'detail_explanation',
+      detailExplanationAttempt + 1,
+    );
+    pendingDetailDisplayTraceRef.current = trace;
     setIsGeneratingDetail(true);
     setDetailExplanationError(null);
     void generateMenuExplanation(
@@ -130,6 +165,7 @@ export function MenuDetailScreen({
       { variant_id: null, choice_ids: [] },
       sourceURL,
       false,
+      trace,
     )
       .then((result) => {
         if (isActive) {
@@ -137,6 +173,8 @@ export function MenuDetailScreen({
         }
       })
       .catch((error) => {
+        pendingDetailDisplayTraceRef.current = null;
+        recordMobileOperationFailed(trace, error);
         if (isActive) {
           setDetailExplanationError(
             error instanceof Error ? error.message : '상세 맛 설명을 만들지 못했습니다.',
@@ -209,14 +247,24 @@ export function MenuDetailScreen({
     }
     const requestID = combinationRequestRef.current + 1;
     combinationRequestRef.current = requestID;
+    const trace = startPerformanceTrace('combination_explanation');
+    pendingCombinationDisplayTraceRef.current = trace;
     setIsGeneratingCombination(true);
     setSelectionMessage(null);
     try {
-      const generated = await generateMenuExplanation(detail, selection, sourceURL, true);
+      const generated = await generateMenuExplanation(
+        detail,
+        selection,
+        sourceURL,
+        true,
+        trace,
+      );
       if (combinationRequestRef.current === requestID) {
         setCombinationExplanation(generated);
       }
     } catch (error) {
+      pendingCombinationDisplayTraceRef.current = null;
+      recordMobileOperationFailed(trace, error);
       if (combinationRequestRef.current === requestID) {
         setSelectionMessage(
           error instanceof Error ? error.message : '설명을 생성하지 못했습니다.',
@@ -333,7 +381,10 @@ export function MenuDetailScreen({
                         <Text style={styles.variantPrice}>
                           {variant.sold_out
                             ? '품절'
-                            : formatPrice(variant.price_aud, variant.currency)}
+                            : formatPrice(
+                                variant.price_amount ?? variant.price_aud,
+                                variant.currency,
+                              )}
                         </Text>
                       </TouchableOpacity>
                     );

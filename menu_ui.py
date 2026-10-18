@@ -8,6 +8,7 @@ from data_load import load_menu_data
 TAB_LABELS = {
     "food": "음식",
     "beverage": "음료",
+    "unknown": "미분류",
 }
 
 
@@ -43,6 +44,7 @@ def _normalise_legacy_options(menu_item: dict) -> list[dict]:
                     "sold_out": False,
                     "hidden": False,
                     "price_delta_aud": additional_price if price_confirmed else None,
+                    "price_delta_amount": additional_price if price_confirmed else None,
                     "price_kind": "additional",
                     "price_status": "confirmed" if price_confirmed else "unknown",
                     "currency": menu_item.get("currency"),
@@ -108,6 +110,14 @@ def create_menu_detail(menu_item: dict) -> dict:
         {
             "product_id": menu_item.get("product_id") or menu_item.get("item_id"),
             "source_product_id": menu_item.get("source_product_id"),
+            # V1.1: 상세·설명이 목록과 동일한 불변 스냅샷을 조회하게 한다.
+            "menu_source_id": menu_item.get("menu_source_id"),
+            "snapshot_id": menu_item.get("snapshot_id"),
+            "snapshot_version": menu_item.get("snapshot_version"),
+            "price_amount": menu_item.get("price_amount", menu_item.get("price_aud")),
+            "price_max_amount": menu_item.get(
+                "price_max_amount", menu_item.get("price_max_aud")
+            ),
             "price_max_aud": menu_item.get("price_max_aud"),
             "options": options,
             "option_status": menu_item.get("option_status") or (
@@ -150,6 +160,9 @@ def create_menu_card(menu_item: dict, restaurant_id: str | None = None) -> dict:
         "item_id": menu_item.get("item_id"),
         "product_id": menu_item.get("product_id") or menu_item.get("item_id"),
         "source_product_id": menu_item.get("source_product_id"),
+        "menu_source_id": menu_item.get("menu_source_id"),
+        "snapshot_id": menu_item.get("snapshot_id"),
+        "snapshot_version": menu_item.get("snapshot_version"),
         "restaurant_id": (
             menu_item.get("restaurant_id")
             or restaurant_id
@@ -164,6 +177,10 @@ def create_menu_card(menu_item: dict, restaurant_id: str | None = None) -> dict:
         "ingredients_from_name": menu_item.get("ingredients_from_name") or [],
         "price_aud": menu_item.get("price_aud"),
         "price_max_aud": menu_item.get("price_max_aud"),
+        "price_amount": menu_item.get("price_amount", menu_item.get("price_aud")),
+        "price_max_amount": menu_item.get(
+            "price_max_amount", menu_item.get("price_max_aud")
+        ),
         "currency": menu_item.get("currency"),
         "one_line_description_ko": menu_item.get("taste_explanation_ko"),
         "has_options": option_status == "available" and bool(options),
@@ -187,7 +204,13 @@ def create_menu_ui_data(menu_data: dict) -> dict:
     tabs_by_type = {}
     categories_by_type = {}
 
-    for item_type, label_ko in TAB_LABELS.items():
+    # V1.1: 기존 빈 화면은 음식·음료 두 탭을 유지하고, 실제 미분류 항목이
+    # 있을 때만 세 번째 탭을 노출한다.
+    visible_types = ["food", "beverage"]
+    if any(item.get("item_type") == "unknown" for item in menu_items):
+        visible_types.append("unknown")
+    for item_type in visible_types:
+        label_ko = TAB_LABELS[item_type]
         tabs_by_type[item_type] = {
             "tab_id": item_type,
             "label_ko": label_ko,
@@ -232,6 +255,14 @@ def create_menu_ui_data(menu_data: dict) -> dict:
             "dataset_status": menu_data.get("dataset_status"),
             "unique_product_count": provenance.get("unique_product_count"),
             "category_listing_count": provenance.get("category_listing_count"),
+            "menu_source_id": provenance.get("menu_source_id"),
+            "snapshot_id": provenance.get("snapshot_id"),
+            "snapshot_version": provenance.get("snapshot_version"),
+            "last_checked_at": provenance.get("last_checked_at"),
+            "data_origin": provenance.get("data_origin"),
+            "is_stale": bool(provenance.get("is_stale", False)),
+            "refresh_status": provenance.get("refresh_status"),
+            "validation_status": provenance.get("validation_status"),
         },
         "total_items": len(menu_items),
         "tabs": list(tabs_by_type.values()),

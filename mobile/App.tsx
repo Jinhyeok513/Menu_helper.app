@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -21,10 +21,20 @@ import {
   importMenuImage,
   importMenuURL,
   loadStoredMenu,
+  recordMobileOperationFailed,
+  recordMobileScreenDisplayed,
+  startPerformanceTrace,
+  waitForBackendAvailability,
 } from './src/menuApi';
 import { MenuDetailScreen } from './src/screens/MenuDetailScreen';
 import { SavedMenuScreen } from './src/screens/SavedMenuScreen';
-import { MenuCard, MenuItemDetail, MenuTab, MenuUIData } from './src/menuTypes';
+import {
+  MenuCard,
+  MenuItemDetail,
+  MenuTab,
+  MenuUIData,
+  PerformanceTrace,
+} from './src/menuTypes';
 
 const COLORS = {
   background: '#F6F1E8',
@@ -56,17 +66,34 @@ export default function App() {
   const [screen, setScreen] = useState<'menu' | 'detail' | 'saved'>('menu');
   const [savedRefreshVersion, setSavedRefreshVersion] = useState(0);
   const [importedDetails, setImportedDetails] = useState<Record<string, MenuItemDetail>>({});
+  const pendingMenuDisplayTraceRef = useRef<PerformanceTrace | null>(null);
+
+  useEffect(() => {
+    const trace = pendingMenuDisplayTraceRef.current;
+    if (!trace || isLoading || !menu) {
+      return;
+    }
+    pendingMenuDisplayTraceRef.current = null;
+    const frameID = requestAnimationFrame(() => {
+      recordMobileScreenDisplayed(trace, menu.total_items);
+    });
+    return () => cancelAnimationFrame(frameID);
+  }, [isLoading, menu]);
 
   const loadDefaultMenu = useCallback(async () => {
+    const trace = startPerformanceTrace('stored_menu_load');
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const loadedMenu = await loadStoredMenu();
+      const loadedMenu = await loadStoredMenu(trace);
+      pendingMenuDisplayTraceRef.current = trace;
       setMenu(loadedMenu);
       setSelectedTabId(firstAvailableTab(loadedMenu));
       setMenuURL(loadedMenu.source.url ?? '');
       setImportedDetails({});
     } catch (error) {
+      pendingMenuDisplayTraceRef.current = null;
+      recordMobileOperationFailed(trace, error);
       setErrorMessage(
         error instanceof Error ? error.message : '메뉴를 불러오지 못했습니다.',
       );
@@ -88,16 +115,26 @@ export default function App() {
       return;
     }
 
+    let trace: PerformanceTrace | null = null;
     Keyboard.dismiss();
     setIsLoading(true);
     setErrorMessage(null);
     setMenuURL(trimmedURL);
     try {
-      const importedMenu = await importMenuURL(trimmedURL);
+      // 무료 배포 서버가 잠든 경우에는 가벼운 health 요청만 기다린다.
+      // 실제 메뉴 추출 요청은 한 번만 보내 중복 외부 요청을 만들지 않는다.
+      await waitForBackendAvailability();
+      trace = startPerformanceTrace('url_menu_import');
+      const importedMenu = await importMenuURL(trimmedURL, trace);
+      pendingMenuDisplayTraceRef.current = trace;
       setMenu(importedMenu);
       setSelectedTabId(firstAvailableTab(importedMenu));
       setImportedDetails({});
     } catch (error) {
+      pendingMenuDisplayTraceRef.current = null;
+      if (trace) {
+        recordMobileOperationFailed(trace, error);
+      }
       setErrorMessage(
         error instanceof Error ? error.message : 'URL 메뉴를 읽지 못했습니다.',
       );
@@ -174,6 +211,7 @@ export default function App() {
           onSaved={() => setSavedRefreshVersion((version) => version + 1)}
           restaurantName={menu?.restaurant?.name || '식당 이름 미확인'}
           sourceURL={menu?.source.url ?? null}
+          snapshotID={menu?.source.snapshot_id ?? null}
         />
       </SafeAreaProvider>
     );
@@ -204,6 +242,14 @@ export default function App() {
           isLoading={isLoading}
           hasOriginalURL={Boolean(menu?.source.url || menuURL.trim())}
         />
+
+        {menu?.source.is_stale ? (
+          <View style={styles.staleNotice}>
+            <Text style={styles.staleNoticeText}>
+              새 메뉴 확인에 실패해 이전 저장 자료를 표시하고 있습니다.
+            </Text>
+          </View>
+        ) : null}
 
         {menu ? (
           <View style={styles.tabRow}>
@@ -236,8 +282,15 @@ export default function App() {
             <Text style={styles.errorTitle}>메뉴를 준비하지 못했습니다.</Text>
             <Text style={styles.errorMessage}>{errorMessage}</Text>
             <View style={styles.errorActions}>
-              <TouchableOpacity style={styles.retryButton} onPress={() => void loadDefaultMenu()}>
-                <Text style={styles.retryButtonText}>저장된 메뉴 다시 보기</Text>
+              <TouchableOpacity
+                style={styles.retryButton}
+                onPress={() =>
+                  void (menuURL.trim() ? loadMenuFromURL(menuURL) : loadDefaultMenu())
+                }
+              >
+                <Text style={styles.retryButtonText}>
+                  {menuURL.trim() ? 'URL 다시 시도' : '저장된 메뉴 다시 보기'}
+                </Text>
               </TouchableOpacity>
               {menuURL.trim() ? (
                 <TouchableOpacity style={styles.linkButton} onPress={() => void openOriginalMenu()}>
@@ -307,6 +360,8 @@ const styles = StyleSheet.create({
   eyebrow: { color: COLORS.primary, fontSize: 12, fontWeight: '800', letterSpacing: 1.5 },
   title: { color: COLORS.ink, fontSize: 28, fontWeight: '800', marginTop: 4 },
   subtitle: { color: COLORS.muted, fontSize: 14, marginTop: 4 },
+  staleNotice: { backgroundColor: '#FFF3D8', borderRadius: 10, marginHorizontal: 20, padding: 10 },
+  staleNoticeText: { color: '#72551A', fontSize: 13, fontWeight: '700' },
   tabRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 20, paddingVertical: 14 },
   tab: {
     flex: 1,

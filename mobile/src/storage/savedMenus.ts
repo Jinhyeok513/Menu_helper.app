@@ -118,6 +118,10 @@ export function buildSavedMenuSelection(
     source_url: sourceURL,
     product_id: detail.product_id,
     source_product_id: detail.source_product_id,
+    // V1.1: 저장한 선택도 당시 메뉴 버전을 식별해 다른 가격·옵션과 섞이지 않게 한다.
+    menu_source_id: detail.menu_source_id,
+    snapshot_id: detail.snapshot_id,
+    snapshot_version: detail.snapshot_version,
     item_id: detail.item_id,
     menu_name: detail.name_ko || detail.name_original,
     currency: detail.currency,

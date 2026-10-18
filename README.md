@@ -68,10 +68,13 @@ menu_url_fetcher.py   URL·목적지 IP·응답 크기 검사와 HTML/JSON 읽�
         ↓
 html_menu_parser.py   지원 HTML/JSON-LD를 공통 메뉴 데이터로 변환
 square_menu_parser.py Square 공개 상품·카테고리·옵션·이미지 응답을 같은 구조로 변환
+v1_1_common_extractor.py 반복 상품 컨테이너의 이름·가격 관계를 공통 규칙으로 추출
         ↓
-menu_ui.py            음식·음료 탭과 원본 카테고리 구성
+v1_1_extraction_pipeline.py 공통 구조 검증과 부분 성공 상태 결정
         ↓
-menu_api.py           앱에 같은 목록 응답 반환
+v1_1_menu_store.py    PostgreSQL 식당·출처·메뉴 스냅샷 저장과 버전 조회
+        ↓
+menu_ui.py / menu_api.py 같은 스냅샷의 목록·상세를 앱에 반환
 ```
 
 사진 입력은 다음 흐름을 사용합니다.
@@ -88,6 +91,12 @@ mobile/               목록·상세·옵션 선택·기기 저장 화면
 
 ## 현재 구현 상태
 
+V1.1의 단계별 계획과 요청 진단 오류 계약은
+[`docs/V1_1_PLAN.md`](docs/V1_1_PLAN.md)에 정리합니다. PostgreSQL 스냅샷 코드,
+공통 HTML 규칙, 동일 버전 상세 연결은 구현했습니다. 격리된 로컬 PostgreSQL에서
+스키마·저장·재조회·백업/복원을 검증했으며, Render DB 적용과 지속성은 배포 환경의
+`DATABASE_URL`로 별도 확인해야 합니다.
+
 | 영역 | 상태 |
 |---|---|
 | UTF-8 메뉴 JSON 읽기 | 완료 |
@@ -100,6 +109,11 @@ mobile/               목록·상세·옵션 선택·기기 저장 화면
 | Square Online 공개 카탈로그 | 완료 — bootstrap + storefront API |
 | Square 옵션·이미지 보존 | 완료 — 실제 storefront 응답에서 확인된 필드 기준 |
 | URL 상품 상세 재조회 | 완료 — URL + 원본 상품 ID로 Square 상품·SKU 연결 |
+| PostgreSQL 메뉴 스냅샷 | 구현 완료 — 격리된 로컬 DB 검증 완료, Render DB는 미검증 |
+| 동일 메뉴 중복 방지·변경 버전 | 구현 완료 — 현재 스냅샷 잠금과 의미 기반 해시 사용 |
+| 저장 스냅샷 목록·상세·Groq 연결 | 구현 완료 — `snapshot_id` 우선, Square 상세는 스냅샷별 지연 저장 |
+| 일반 HTML 공통 컨테이너 규칙 | 구현 완료 — 이름과 가격이 같은 상품 영역에 있을 때만 추출 |
+| Playwright 동적 DOM fallback | 미구현 — 운영 자원·하위 요청 제한 검증 전 기본 비활성 |
 | React Native 목록 화면 | iPhone 17 Pro Simulator Development build 검증 완료 |
 | 수동 URL 입력 | API 연결 검증 완료 — 지원 HTML 기준 |
 | 앱 내부 QR 입력 | 완료 — 실제 iPhone 카메라에서 Madam Pho QR 검증 |
@@ -178,7 +192,20 @@ Groq 설명 생성을 사용하려면 프로젝트 루트의 Git 제외 파일 `
 GROQ_API_KEY=발급받은_API_키
 GROQ_MAX_RETRIES=0
 # 선택 사항: MENU_JSON_PATH=/absolute/path/to/menu.json
+DATABASE_URL=Render에서_복사한_PostgreSQL_URL
 ```
+
+로컬 Mac에서는 Render External Database URL을 사용하고, Render 백엔드에서는
+같은 리전의 Internal Database URL을 Secret 환경변수로 사용합니다. 실제 URL은
+문서나 Git에 넣지 않습니다. 최초 한 번 다음 명령으로 스키마를 적용합니다.
+
+```bash
+.venv/bin/python v1_1_menu_store.py apply-schema
+.venv/bin/python v1_1_menu_store.py check
+```
+
+세부 백업·복원 절차는
+[`docs/v1_1_database_operations.md`](docs/v1_1_database_operations.md)를 참고합니다.
 
 사진 추출 모델은 기본값을 사용하거나 필요할 때만 변경합니다.
 
@@ -279,6 +306,11 @@ python scripts/generate_menu_qr.py \
 - `502`: Groq 연결·응답 또는 LLM 검증 실패
 - `503`: 서버에 `GROQ_API_KEY`가 설정되지 않음
 
+URL 메뉴 오류는 기존 `detail` 본문과 함께 `X-Request-ID`,
+`X-Menu-Error-Code`, `X-Menu-Failure-Stage` 응답 헤더를 제공합니다. 앱은 이를
+사용해 백엔드 연결, 원본 식당 서버 요청, 미지원 추출 구조, 공통 UI 변환 실패를
+구분합니다. 전체 URL·쿼리·인증 헤더·응답 본문은 진단 로그에 저장하지 않습니다.
+
 ## 확인된 실행 결과
 
 - 샘플 JSON 메뉴 수: 45개
@@ -298,14 +330,14 @@ python scripts/generate_menu_qr.py \
 - `GET /menus/noelles_ue_045`: `200 OK`, `Iced matcha` 반환
 - 존재하지 않는 메뉴: `404 Not Found`
 - API 키가 없는 설명 요청: `503 Service Unavailable`
-- Python `unittest`: 32개 통과 — 옵션·이미지 크기·빈 OCR·URL 상세·설명 종류 분리를 포함
+- Python `unittest`: 37개 통과 — 옵션·이미지 크기·빈 OCR·URL 상세·설명 종류·성능 로그 분리를 포함
 - 선택 ID·최소/최대·품절 검증과 사진 입력 형식·크기 검사를 단위 테스트로 확인
 - TypeScript 검사 통과, Expo Doctor 21/21 통과
 - `SafeAreaView`는 `react-native-safe-area-context`로 교체하고 iOS build 성공
 - `expo-image-picker`와 AsyncStorage를 포함한 iPhone 17 Pro Simulator Development build 재설치·실행 성공
 - `npm audit`: 보통 7개·높음 15개, 총 22개 경고. Expo/Metro 전이 의존성의 강제 수정은 Expo 44 또는 React Native 0.72로 내리므로 적용하지 않음
 
-실제 Groq 설명 생성, Groq Vision 추출 및 생성 내용의 품질은 API 키가 없어 아직 검증하지 않았습니다.
+Groq 상세 설명 API는 2026-10-17에 실제 호출 1회가 `200 OK`로 완료됐습니다. 생성 내용의 사실성·표현 품질과 Groq Vision 결과는 아직 수동 검토하지 않았습니다.
 
 ### 실제 기기에서 확인한 항목
 
@@ -329,15 +361,27 @@ python scripts/generate_menu_qr.py \
 3. 흐림·기울어짐·일부 잘림·메뉴가 아닌 사진의 실패 안내를 실제 기기에서 확인합니다.
 4. 설명 정확도·응답 시간·무료 한도와 실제 요청량을 같은 조건에서 기록합니다.
 
+## V1 성능 기준선
+
+V2 비교를 위한 개발용 구조화 로그를 지원합니다. 기본값은 꺼져 있으며 API 키, 인증정보, URL 전체 문자열, 메뉴 본문은 기록하지 않습니다. 모바일과 백엔드는 `X-Request-ID`로 연결되고 외부 웹 요청, 메뉴 변환, LLM 호출, API 응답, 화면 표시를 별도 이벤트로 남깁니다.
+
+- 예비 측정 보고서: `docs/V1_PERFORMANCE_BASELINE.md`
+- 비민감 집계 JSON: `docs/V1_PERFORMANCE_RESULTS.json`
+- 설명 품질 수동 검토: `docs/V1_QUALITY_REVIEW_TEMPLATE.md`
+- 원시 JSONL: 로컬 `performance_logs/`에 저장되며 Git에서 제외
+
+표본 1개의 예비 측정에서는 실제 Square URL 메뉴 API가 1,171.554 ms, 메뉴 추출·공통 구조 변환이 4.552 ms, 실제 Groq 상세 설명 호출이 806.105 ms였습니다. Groq 사용량은 입력 1,199·출력 260·합계 1,459 토큰이었습니다. 이 값은 평균적인 성능이나 p50·p95를 의미하지 않습니다.
+
 ## 현재 한계
 
 - 저장 JSON 기능을 사용할 때는 `MENU_JSON_PATH`의 파일을 서버 시작 시 한 번 읽으므로 파일 변경 후 서버를 재시작해야 합니다.
 - 원본 샘플 JSON은 저장소에 없으며 선택 사항입니다. 경로가 없거나 파일이 없으면 빈 저장 메뉴를 반환하고 URL·QR·사진 기능은 계속 사용할 수 있습니다.
-- HTML 추출은 data 속성, JSON-LD `MenuSection`/`MenuItem`, 현재 Square Online 공개 storefront API를 지원합니다. JSON-LD에서 확인할 수 없는 옵션은 `not_checked`입니다.
+- HTML 추출은 data 속성, JSON-LD `MenuSection`/`MenuItem`, 반복 상품 컨테이너의 이름·가격 관계, 현재 Square Online 공개 storefront API를 지원합니다. JSON-LD에서 확인할 수 없는 옵션은 `not_checked`입니다.
 - Square의 공개 응답 구조·버전·CDN 호스트가 바뀌면 추출기도 갱신해야 합니다.
 - 현재 Square 검증 사례의 `options.data`는 비어 있었고 선택 옵션은 `modifiers.data`, 사이즈는 별도 SKU 응답에 있었습니다. 공식 Square Catalog API와 동일한 구조라고 가정하지 않습니다.
 - 일반적인 동적 JavaScript·로그인·Cloudflare/CAPTCHA 페이지를 우회하지 않습니다.
-- 서버 데이터베이스는 없습니다. 생성 설명은 앱 AsyncStorage에 최대 600건을 저장하며 URL 상세는 전역 메뉴를 덮어쓰지 않고 URL과 원본 상품 ID로 다시 조회합니다.
+- URL 메뉴는 PostgreSQL 스냅샷 저장을 전제로 합니다. DB가 없거나 스키마가 준비되지 않으면 저장 성공으로 처리하지 않고 `/ready`와 API 오류 코드로 구분합니다.
+- 무료 Render Postgres는 현재 생성 30일 후 만료되고 관리형 백업·복구를 제공하지 않으므로 장기 영구 저장소로 표현하지 않습니다. 만료 전 `pg_dump` 백업이 필요하며 배포 시점의 공식 정책을 다시 확인해야 합니다.
 - 목록을 가져올 때는 Groq를 호출하지 않고 원문 설명을 표시합니다. 상세 진입과 선택 조합 버튼은 각각 최대 한 번만 Groq를 호출하며, `429`·`502`·시간 초과를 자동 재시도하지 않습니다.
 - 성공한 설명은 앱에서 재사용하지만 기기 간 동기화는 하지 않습니다. 모델 또는 프롬프트 버전이 바뀌면 이전 캐시와 구분됩니다.
 - Android는 아직 빌드하거나 실행하지 않았습니다.

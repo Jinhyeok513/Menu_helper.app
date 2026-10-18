@@ -2,6 +2,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from time import perf_counter
 
 from groq import Groq
 
@@ -9,6 +10,7 @@ from app_config import settings
 from data_load import load_menu_data
 from find_menu import find_menu_by_id
 from menu_ui import create_menu_detail
+from performance_metrics import record_performance_event
 
 
 MODEL_NAME = settings.groq_text_model
@@ -174,14 +176,102 @@ def _require_api_key() -> str:
     return api_key
 
 
+def _usage_value(usage: object | None, field_name: str) -> int | None:
+    value = getattr(usage, field_name, None)
+    return value if isinstance(value, int) else None
+
+
+def _create_measured_completion(
+    *,
+    client: Groq,
+    operation: str,
+    prompt_version: str,
+    messages: list[dict],
+    schema_name: str,
+    schema: dict,
+):
+    """한 번의 Groq 호출 시간·결과·토큰만 기록하고 본문은 기록하지 않는다."""
+    started_at = perf_counter()
+    try:
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=messages,
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": schema_name,
+                    "strict": True,
+                    "schema": schema,
+                },
+            },
+            reasoning_effort="low",
+        )
+    except Exception as error:
+        status_code = getattr(error, "status_code", None)
+        error_name = type(error).__name__
+        is_rate_limited = status_code == 429 or error_name == "RateLimitError"
+        is_timeout = "timeout" in error_name.lower()
+        record_performance_event(
+            component="backend",
+            event="llm_call",
+            operation=operation,
+            outcome=(
+                "rate_limited"
+                if is_rate_limited
+                else "timeout"
+                if is_timeout
+                else "failure"
+            ),
+            duration_ms=(perf_counter() - started_at) * 1000,
+            model=MODEL_NAME,
+            prompt_version=prompt_version,
+            http_status=status_code if isinstance(status_code, int) else None,
+            input_tokens=None,
+            output_tokens=None,
+            total_tokens=None,
+            error_type=error_name,
+            retry_count=0 if settings.groq_max_retries == 0 else None,
+            retry_limit=settings.groq_max_retries,
+            timeout=is_timeout,
+            rate_limited=is_rate_limited,
+            concurrency=1,
+            measurement_method="groq_sdk_completion",
+        )
+        raise
+
+    usage = getattr(response, "usage", None)
+    record_performance_event(
+        component="backend",
+        event="llm_call",
+        operation=operation,
+        outcome="success",
+        duration_ms=(perf_counter() - started_at) * 1000,
+        model=MODEL_NAME,
+        prompt_version=prompt_version,
+        http_status=200,
+        input_tokens=_usage_value(usage, "prompt_tokens"),
+        output_tokens=_usage_value(usage, "completion_tokens"),
+        total_tokens=_usage_value(usage, "total_tokens"),
+        retry_count=0 if settings.groq_max_retries == 0 else None,
+        retry_limit=settings.groq_max_retries,
+        timeout=False,
+        rate_limited=False,
+        concurrency=1,
+        measurement_method="groq_sdk_completion",
+    )
+    return response
+
+
 def generate_menu_one_line_description(menu_item: dict) -> dict:
     """목록을 막지 않고 개별 호출할 수 있는 짧은 설명 하나를 생성한다."""
     required_identifiers = ("item_id", "source_id", "product_id")
     if any(not isinstance(menu_item.get(name), str) for name in required_identifiers):
         raise ValueError("목록 설명에 필요한 메뉴 식별자가 없습니다.")
 
-    response = _create_client(_require_api_key()).chat.completions.create(
-        model=MODEL_NAME,
+    response = _create_measured_completion(
+        client=_create_client(_require_api_key()),
+        operation="one_line_description",
+        prompt_version=ONE_LINE_PROMPT_VERSION,
         messages=[
             {"role": "system", "content": ONE_LINE_SYSTEM_INSTRUCTIONS},
             {
@@ -192,15 +282,8 @@ def generate_menu_one_line_description(menu_item: dict) -> dict:
                 ),
             },
         ],
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "menu_one_line_description",
-                "strict": True,
-                "schema": ONE_LINE_SCHEMA,
-            },
-        },
-        reasoning_effort="low",
+        schema_name="menu_one_line_description",
+        schema=ONE_LINE_SCHEMA,
     )
     response_text = response.choices[0].message.content
     if response_text is None:
@@ -347,8 +430,14 @@ def generate_menu_explanation(
             "option_descriptions_ko는 비우고 combination_description_ko는 null로 두세요."
         )
     )
-    response = client.chat.completions.create(
-        model=MODEL_NAME,
+    response = _create_measured_completion(
+        client=client,
+        operation=(
+            "combination_explanation" if include_combination else "detail_explanation"
+        ),
+        prompt_version=(
+            COMBINATION_PROMPT_VERSION if include_combination else DETAIL_PROMPT_VERSION
+        ),
         messages=[
             {"role": "system", "content": SYSTEM_INSTRUCTIONS},
             {
@@ -356,15 +445,8 @@ def generate_menu_explanation(
                 "content": f"{mode_instruction}\n설명 종류: {request_kind}\n{menu_json}",
             },
         ],
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "menu_explanation",
-                "strict": True,
-                "schema": EXPLANATION_SCHEMA,
-            },
-        },
-        reasoning_effort="low",
+        schema_name="menu_explanation",
+        schema=EXPLANATION_SCHEMA,
     )
 
     response_text = response.choices[0].message.content
